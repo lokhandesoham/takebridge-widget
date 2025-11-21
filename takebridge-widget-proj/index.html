@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
+    <title>TakeBridge Widget</title>
+    
+    <!-- Load noVNC RFB as an ES module and expose it on window.RFB -->
+    <!-- Note: This will be handled by the VncViewer component via dynamic import -->
+    <!-- We'll load it there instead to avoid CDN/import issues -->
   </head>
   <body>
     <div id="root"></div>

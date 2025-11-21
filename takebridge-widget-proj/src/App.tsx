@@ -1,4 +1,5 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { VncViewer } from "./components/VncViewer";
 
 function App() {
   const [task, setTask] = useState("");
@@ -7,11 +8,64 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [baseUrl, setBaseUrl] = useState(
-    () => localStorage.getItem("tb_base_url") || "https://127.0.0.1:8000"
+    () => localStorage.getItem("tb_base_url") || "http://127.0.0.1:9000"
   );
   const [userId, setUserId] = useState(
     () => localStorage.getItem("tb_user_id") || "local-dev-user"
   );
+
+  // VNC-related state
+  const [vncUrl, setVncUrl] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("vncUrl") || "";
+  });
+  const [vncPassword, setVncPassword] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("vncPassword") || "";
+  });
+  const [showDesktop, setShowDesktop] = useState<boolean>(false);
+  const [vncStatus, setVncStatus] = useState<string>("idle");
+  const [vncError, setVncError] = useState<string | null>(null);
+
+  // Persist vncUrl to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("vncUrl", vncUrl || "");
+  }, [vncUrl]);
+
+  // Persist vncPassword to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("vncPassword", vncPassword || "");
+  }, [vncPassword]);
+
+  // Helper to load workspace from Control Plane
+  const loadWorkspaceFromControlPlane = async () => {
+    setVncError(null);
+    if (!baseUrl || !userId) {
+      setVncError("Base URL and User ID are required to load workspace.");
+      return;
+    }
+    try {
+      const url = `${baseUrl.replace(/\/+$/, "")}/app/workspace?user_id=${encodeURIComponent(
+        userId
+      )}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      const data = await res.json();
+      if (data.vnc_url) {
+        setVncUrl(data.vnc_url);
+      } else {
+        setVncError("Workspace found, but vnc_url is null. Backend not wired yet.");
+      }
+    } catch (err: any) {
+      console.error("[App] loadWorkspace error:", err);
+      setVncError(err?.message || "Failed to load workspace");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,6 +189,89 @@ function App() {
               }}
             />
           </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            <h3 style={{ fontWeight: 600, marginBottom: "0.25rem", fontSize: "0.9rem", color: "#eee" }}>VNC Desktop</h3>
+
+            <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem", color: "#ccc" }}>
+              VNC WebSocket URL
+            </label>
+            <input
+              type="text"
+              value={vncUrl}
+              placeholder="ws://host:port/websockify"
+              onChange={(e) => setVncUrl(e.target.value)}
+              style={{ 
+                width: "100%", 
+                padding: "4px 8px", 
+                fontSize: "0.85rem",
+                background: "#111",
+                border: "1px solid #333",
+                color: "#eee",
+                borderRadius: 2,
+              }}
+            />
+
+            <label
+              style={{ display: "block", fontSize: "0.85rem", marginTop: "0.5rem", marginBottom: "0.25rem", color: "#ccc" }}
+            >
+              VNC Password
+            </label>
+            <input
+              type="password"
+              value={vncPassword}
+              onChange={(e) => setVncPassword(e.target.value)}
+              style={{ 
+                width: "100%", 
+                padding: "4px 8px", 
+                fontSize: "0.85rem",
+                background: "#111",
+                border: "1px solid #333",
+                color: "#eee",
+                borderRadius: 2,
+              }}
+              placeholder="Same password you use in your VNC client"
+            />
+
+            <div style={{ display: "flex", alignItems: "center", marginTop: "0.5rem", gap: "0.5rem" }}>
+              <button
+                type="button"
+                onClick={loadWorkspaceFromControlPlane}
+                style={{ 
+                  padding: "4px 8px", 
+                  fontSize: "0.8rem",
+                  background: "#333",
+                  border: "1px solid #555",
+                  color: "#eee",
+                  borderRadius: 2,
+                  cursor: "pointer",
+                }}
+              >
+                Load from workspace
+              </button>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.85rem", color: "#ccc" }}>
+                <input
+                  type="checkbox"
+                  checked={showDesktop}
+                  onChange={(e) => setShowDesktop(e.target.checked)}
+                />
+                Show desktop preview
+              </label>
+            </div>
+
+            {vncError && (
+              <div style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                {vncError}
+              </div>
+            )}
+
+            {vncStatus !== "idle" && (
+              <div style={{ color: "#888", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                Desktop status: {vncStatus}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -251,6 +388,41 @@ function App() {
               {JSON.stringify(lastResult, null, 2)}
             </pre>
           </details>
+        </div>
+      )}
+
+      {showDesktop && vncUrl && (
+        <div
+          style={{
+            marginTop: "1rem",
+            border: "1px solid #444",
+            borderRadius: "4px",
+            height: "300px", // adjust as needed
+            overflow: "hidden",
+            WebkitAppRegion: "no-drag" as any,
+          }}
+        >
+          <VncViewer
+            url={vncUrl}
+            password={vncPassword || undefined}
+            viewOnly={false}
+            visible={showDesktop}
+            onConnect={() => {
+              setVncStatus("connected");
+              setVncError(null);
+            }}
+            onDisconnect={(reason) => {
+              setVncStatus(`disconnected (${reason || "unknown"})`);
+            }}
+            onError={(err) => {
+              console.error("[VNC] error:", err);
+              setVncStatus("error");
+              setVncError(
+                err instanceof Error ? err.message : "Unknown error in VNC viewer"
+              );
+            }}
+            className="vnc-viewer"
+          />
         </div>
       )}
     </div>

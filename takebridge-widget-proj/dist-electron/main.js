@@ -114,25 +114,23 @@ app.on("before-quit", () => {
 ipcMain.handle("run-task", async (_event, payload) => {
   const { task, baseUrl, userId } = payload;
   console.log("Got task from widget:", task);
-  console.log("Using orchestrator URL:", baseUrl);
+  console.log("Using control plane URL:", baseUrl);
   console.log("Using user ID:", userId);
-  const body = {
-    task,
-    enable_code_execution: false
-    // Optionally attach tool_constraints, worker overrides, etc.
-  };
   try {
     const fetch = (await import("./index-DiX2KYRr.js")).default;
     const httpsAgent = baseUrl.startsWith("https://") ? new https.Agent({
       rejectUnauthorized: false
       // Allow self-signed certificates for localhost
     }) : void 0;
-    console.log("Sending request to orchestrator:", JSON.stringify(body, null, 2));
-    const res = await fetch(`${baseUrl}/orchestrate`, {
+    const body = {
+      task,
+      user_id: userId
+    };
+    console.log("Sending request to control plane:", JSON.stringify(body, null, 2));
+    const res = await fetch(`${baseUrl}/app/run_task`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "X-User-Id": userId
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(body),
       agent: httpsAgent
@@ -140,24 +138,13 @@ ipcMain.handle("run-task", async (_event, payload) => {
     });
     if (!res.ok) {
       const text = await res.text();
-      const errorMessage = `HTTP ${res.status}: ${text}`;
-      console.error("Orchestrator error:", errorMessage);
-      if (res.status === 500 && text.includes("Controller")) {
-        throw new Error(
-          `Controller service error. The orchestrator is trying to connect to a VM controller.
-Options:
-1. Start your controller service on http://127.0.0.1:5000
-2. Or configure the orchestrator to work without a controller
-Details: ${text}`
-        );
-      }
-      throw new Error(errorMessage);
+      throw new Error(`HTTP ${res.status}: ${text}`);
     }
     const json = await res.json();
     return json;
   } catch (err) {
     console.error("run-task error:", err);
-    throw new Error((err == null ? void 0 : err.message) || "Failed to call orchestrator");
+    throw new Error((err == null ? void 0 : err.message) || "Failed to call control plane");
   }
 });
 app.whenReady().then(() => {

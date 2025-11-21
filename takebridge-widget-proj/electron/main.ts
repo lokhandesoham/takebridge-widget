@@ -164,24 +164,8 @@ app.on('before-quit', () => {
 ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: string; userId: string }) => {
   const { task, baseUrl, userId } = payload
   console.log('Got task from widget:', task)
-  console.log('Using orchestrator URL:', baseUrl)
+  console.log('Using control plane URL:', baseUrl)
   console.log('Using user ID:', userId)
-  
-  const body: any = {
-    task: task,
-    enable_code_execution: false,
-    // Optionally attach tool_constraints, worker overrides, etc.
-  }
-  
-  // Only include controller if you have a running controller service
-  // For now, omit it to see if orchestrator can work without it
-  // If your orchestrator requires a controller, you'll need to:
-  // 1. Start the controller service, or
-  // 2. Provide proper controller config with authentication
-  // body.controller = {
-  //   base_url: "http://127.0.0.1:5000",
-  //   // Add any required auth headers/credentials here
-  // }
 
   try {
     // Use dynamic import for node-fetch since it's CommonJS
@@ -195,13 +179,17 @@ ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: stri
         })
       : undefined
     
-    console.log('Sending request to orchestrator:', JSON.stringify(body, null, 2))
+    const body = {
+      task,
+      user_id: userId,
+    }
     
-    const res = await fetch(`${baseUrl}/orchestrate`, {
+    console.log('Sending request to control plane:', JSON.stringify(body, null, 2))
+    
+    const res = await fetch(`${baseUrl}/app/run_task`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': userId,
       },
       body: JSON.stringify(body),
       agent: httpsAgent, // Use custom agent for HTTPS with self-signed certs
@@ -209,28 +197,14 @@ ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: stri
 
     if (!res.ok) {
       const text = await res.text()
-      const errorMessage = `HTTP ${res.status}: ${text}`
-      console.error('Orchestrator error:', errorMessage)
-      
-      // Provide more helpful error messages
-      if (res.status === 500 && text.includes('Controller')) {
-        throw new Error(
-          'Controller service error. The orchestrator is trying to connect to a VM controller.\n' +
-          'Options:\n' +
-          '1. Start your controller service on http://127.0.0.1:5000\n' +
-          '2. Or configure the orchestrator to work without a controller\n' +
-          `Details: ${text}`
-        )
-      }
-      
-      throw new Error(errorMessage)
+      throw new Error(`HTTP ${res.status}: ${text}`)
     }
 
     const json = await res.json()
-    return json // goes back to renderer as lastResult
+    return json
   } catch (err: any) {
     console.error('run-task error:', err)
-    throw new Error(err?.message || 'Failed to call orchestrator')
+    throw new Error(err?.message || 'Failed to call control plane')
   }
 })
 

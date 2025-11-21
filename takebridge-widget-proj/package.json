@@ -7,14 +7,17 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node scripts/patch-novnc.cjs"
   },
   "dependencies": {
+    "@novnc/novnc": "^1.6.0",
     "node-fetch": "^2.7.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.0",
     "@types/node-fetch": "^2.6.13",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
@@ -28,6 +31,7 @@
     "eslint-plugin-react-refresh": "^0.4.5",
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
+    "vite-plugin-commonjs": "^0.10.4",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"
   },
