@@ -6,7 +6,7 @@ export {}
 declare global {
   interface Window {
     api: {
-      runTask: (payload: { task: string; baseUrl: string; userId: string }) => Promise<any>
+      runTask: (payload: { task: string; baseUrl: string; jwtToken: string }) => Promise<any>
     }
   }
 }

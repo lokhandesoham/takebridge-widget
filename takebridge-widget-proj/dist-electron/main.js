@@ -112,10 +112,11 @@ app.on("before-quit", () => {
   isQuitting = true;
 });
 ipcMain.handle("run-task", async (_event, payload) => {
-  const { task, baseUrl, userId } = payload;
+  const { task, baseUrl, jwtToken } = payload;
   console.log("Got task from widget:", task);
   console.log("Using control plane URL:", baseUrl);
-  console.log("Using user ID:", userId);
+  console.log("Using JWT token for authentication");
+  console.log("JWT token (first 20 chars):", jwtToken ? jwtToken.substring(0, 20) + "..." : "MISSING");
   try {
     const fetch = (await import("./index-DiX2KYRr.js")).default;
     const httpsAgent = baseUrl.startsWith("https://") ? new https.Agent({
@@ -123,14 +124,15 @@ ipcMain.handle("run-task", async (_event, payload) => {
       // Allow self-signed certificates for localhost
     }) : void 0;
     const body = {
-      task,
-      user_id: userId
+      task
+      // user_id is now extracted from JWT token by the Control Plane
     };
     console.log("Sending request to control plane:", JSON.stringify(body, null, 2));
     const res = await fetch(`${baseUrl}/app/run_task`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${jwtToken}`
       },
       body: JSON.stringify(body),
       agent: httpsAgent

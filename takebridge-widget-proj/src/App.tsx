@@ -1,5 +1,88 @@
 import React, { useState, useEffect } from "react";
 import { VncViewer } from "./components/VncViewer";
+import { getSupabaseClient, resetSupabaseClient, getAccessToken } from "./lib/supabase";
+import type { User } from "@supabase/supabase-js";
+
+// Login form component
+function LoginForm({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await onLogin(email, password);
+    } catch (err: any) {
+      setError(err?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ marginTop: "0.5rem" }}>
+      <div style={{ marginBottom: 8 }}>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          required
+          style={{ 
+            width: "100%",
+            padding: 4,
+            background: "#111",
+            border: "1px solid #333",
+            color: "#eee",
+            borderRadius: 2,
+          }}
+        />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+          required
+          style={{ 
+            width: "100%",
+            padding: 4,
+            background: "#111",
+            border: "1px solid #333",
+            color: "#eee",
+            borderRadius: 2,
+          }}
+        />
+      </div>
+      {error && (
+        <div style={{ color: "red", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+          {error}
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={loading}
+        style={{ 
+          padding: "4px 8px", 
+          fontSize: "0.8rem",
+          background: "#333",
+          border: "1px solid #555",
+          color: "#eee",
+          borderRadius: 2,
+          cursor: loading ? "not-allowed" : "pointer",
+          opacity: loading ? 0.6 : 1,
+        }}
+      >
+        {loading ? "Logging in..." : "Login"}
+      </button>
+    </form>
+  );
+}
 
 function App() {
   const [task, setTask] = useState("");
@@ -10,9 +93,22 @@ function App() {
   const [baseUrl, setBaseUrl] = useState(
     () => localStorage.getItem("tb_base_url") || "http://127.0.0.1:9000"
   );
-  const [userId, setUserId] = useState(
-    () => localStorage.getItem("tb_user_id") || "local-dev-user"
+  
+  // Supabase configuration
+  const [supabaseUrl, setSupabaseUrl] = useState(
+    () => localStorage.getItem("tb_supabase_url") || ""
   );
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(
+    () => localStorage.getItem("tb_supabase_anon_key") || ""
+  );
+  
+  // Authentication state
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  
+  // Canonical user ID from Supabase (UUID from auth.users.id)
+  const [canonicalUserId, setCanonicalUserId] = useState<string | null>(null);
 
   // VNC-related state
   const [vncUrl, setVncUrl] = useState<string>(() => {
@@ -39,18 +135,135 @@ function App() {
     localStorage.setItem("vncPassword", vncPassword || "");
   }, [vncPassword]);
 
+  // Initialize Supabase auth and get current user
+  useEffect(() => {
+    const initAuth = async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      
+      if (!supabaseUrl || !supabaseAnonKey) {
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        resetSupabaseClient(); // Reset to use new config
+        const supabase = getSupabaseClient();
+        
+        // Get current session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          throw sessionError;
+        }
+        
+        if (session?.user) {
+          setUser(session.user);
+          setCanonicalUserId(session.user.id);
+        } else {
+          setUser(null);
+          setCanonicalUserId(null);
+        }
+      } catch (err: any) {
+        console.error("[Auth] Error initializing:", err);
+        setAuthError(err?.message || "Failed to initialize authentication");
+        setUser(null);
+        setCanonicalUserId(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    initAuth();
+  }, [supabaseUrl, supabaseAnonKey]);
+
+  // Listen for auth state changes
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseAnonKey) return;
+
+    try {
+      const supabase = getSupabaseClient();
+      
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          console.log("[Auth] State changed:", event);
+          if (session?.user) {
+            setUser(session.user);
+            setCanonicalUserId(session.user.id);
+          } else {
+            setUser(null);
+            setCanonicalUserId(null);
+          }
+        }
+      );
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    } catch (err) {
+      console.error("[Auth] Error setting up listener:", err);
+    }
+  }, [supabaseUrl, supabaseAnonKey]);
+
+  // Login handler
+  const handleLogin = async (email: string, password: string) => {
+    setAuthError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        setUser(data.user);
+        setCanonicalUserId(data.user.id);
+      }
+    } catch (err: any) {
+      console.error("[Auth] Login error:", err);
+      setAuthError(err?.message || "Failed to login");
+      throw err;
+    }
+  };
+
+  // Logout handler
+  const handleLogout = async () => {
+    setAuthError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUser(null);
+      setCanonicalUserId(null);
+    } catch (err: any) {
+      console.error("[Auth] Logout error:", err);
+      setAuthError(err?.message || "Failed to logout");
+    }
+  };
+
   // Helper to load workspace from Control Plane
   const loadWorkspaceFromControlPlane = async () => {
     setVncError(null);
-    if (!baseUrl || !userId) {
-      setVncError("Base URL and User ID are required to load workspace.");
+    if (!baseUrl) {
+      setVncError("Base URL is required to load workspace.");
       return;
     }
+    
+    const token = await getAccessToken();
+    if (!token) {
+      setVncError("Please authenticate with Supabase first.");
+      return;
+    }
+    
     try {
-      const url = `${baseUrl.replace(/\/+$/, "")}/app/workspace?user_id=${encodeURIComponent(
-        userId
-      )}`;
-      const res = await fetch(url);
+      const url = `${baseUrl.replace(/\/+$/, "")}/app/workspace`;
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text}`);
@@ -71,6 +284,13 @@ function App() {
     e.preventDefault();
     if (!task.trim()) return;
 
+    const token = await getAccessToken();
+    if (!token) {
+      setError("Please authenticate with Supabase first.");
+      setStatus("error");
+      return;
+    }
+
     setStatus("running");
     setError(null);
     setLastResult(null);
@@ -79,7 +299,8 @@ function App() {
       if (!window.api) {
         throw new Error("API not available yet");
       }
-      const result = await window.api.runTask({ task, baseUrl, userId });
+      // Pass JWT token instead of userId - Control Plane extracts user_id from JWT
+      const result = await window.api.runTask({ task, baseUrl, jwtToken: token });
       setLastResult(result);
       setStatus("done");
     } catch (err: any) {
@@ -169,25 +390,93 @@ function App() {
               }}
             />
           </div>
-          <div>
-            <div style={{ marginBottom: 4 }}>User ID</div>
-            <input
-              type="text"
-              value={userId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setUserId(v);
-                localStorage.setItem("tb_user_id", v);
-              }}
-              style={{ 
-                width: "100%",
-                padding: 4,
-                background: "#111",
-                border: "1px solid #333",
-                color: "#eee",
-                borderRadius: 2,
-              }}
-            />
+
+          <div style={{ marginBottom: 8, paddingTop: 8, borderTop: "1px solid #333" }}>
+            <h3 style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.9rem", color: "#eee" }}>
+              Supabase Authentication
+            </h3>
+            
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ marginBottom: 4 }}>Supabase URL</div>
+              <input
+                type="text"
+                value={supabaseUrl}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSupabaseUrl(v);
+                  localStorage.setItem("tb_supabase_url", v);
+                  resetSupabaseClient();
+                }}
+                placeholder="https://your-project.supabase.co"
+                style={{ 
+                  width: "100%",
+                  padding: 4,
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  borderRadius: 2,
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ marginBottom: 4 }}>Supabase Anon Key</div>
+              <input
+                type="password"
+                value={supabaseAnonKey}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSupabaseAnonKey(v);
+                  localStorage.setItem("tb_supabase_anon_key", v);
+                  resetSupabaseClient();
+                }}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                style={{ 
+                  width: "100%",
+                  padding: 4,
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  borderRadius: 2,
+                }}
+              />
+            </div>
+
+            {authError && (
+              <div style={{ color: "red", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+                {authError}
+              </div>
+            )}
+
+            {authLoading ? (
+              <div style={{ color: "#888", fontSize: "0.8rem" }}>Loading...</div>
+            ) : user && canonicalUserId ? (
+              <div style={{ marginTop: "0.5rem" }}>
+                <div style={{ color: "#4ade80", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+                  ✓ Authenticated as {user.email}
+                </div>
+                <div style={{ color: "#888", fontSize: "0.75rem", marginBottom: "0.5rem", wordBreak: "break-all" }}>
+                  User ID: {canonicalUserId}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{ 
+                    padding: "4px 8px", 
+                    fontSize: "0.8rem",
+                    background: "#333",
+                    border: "1px solid #555",
+                    color: "#eee",
+                    borderRadius: 2,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <LoginForm onLogin={handleLogin} />
+            )}
           </div>
 
           <div style={{ marginTop: "1rem" }}>

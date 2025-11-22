@@ -161,11 +161,13 @@ app.on('before-quit', () => {
 })
 
 // IPC handlers
-ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: string; userId: string }) => {
-  const { task, baseUrl, userId } = payload
+ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: string; jwtToken: string }) => {
+  const { task, baseUrl, jwtToken } = payload
   console.log('Got task from widget:', task)
   console.log('Using control plane URL:', baseUrl)
-  console.log('Using user ID:', userId)
+  console.log('Using JWT token for authentication')
+  // Log first 20 chars of token for debugging (don't log full token for security)
+  console.log('JWT token (first 20 chars):', jwtToken ? jwtToken.substring(0, 20) + '...' : 'MISSING')
 
   try {
     // Use dynamic import for node-fetch since it's CommonJS
@@ -181,7 +183,7 @@ ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: stri
     
     const body = {
       task,
-      user_id: userId,
+      // user_id is now extracted from JWT token by the Control Plane
     }
     
     console.log('Sending request to control plane:', JSON.stringify(body, null, 2))
@@ -190,6 +192,7 @@ ipcMain.handle('run-task', async (_event, payload: { task: string; baseUrl: stri
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${jwtToken}`,
       },
       body: JSON.stringify(body),
       agent: httpsAgent, // Use custom agent for HTTPS with self-signed certs

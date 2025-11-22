@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 
 // --------- Expose clean API for backend calls ---------
 contextBridge.exposeInMainWorld('api', {
-  runTask: (payload: { task: string; baseUrl: string; userId: string }) => {
+  runTask: (payload: { task: string; baseUrl: string; jwtToken: string }) => {
     return ipcRenderer.invoke('run-task', payload)
   },
 })
